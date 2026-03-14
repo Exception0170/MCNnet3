@@ -6,6 +6,17 @@ ipv3.env={
   node_uuid="node_uuid",
   this_netid="this_netid"
 }
+---Get this device's encoded ipv3
+---@return string|nil
+function ipv3.this()
+  local this=os.getenv(ipv3.env.this_ip)
+  if not ipv3.checkIPv3(this) then
+    local netid=os.getenv(ipv3.env.this_netid)
+    if not netid then netid="0000" end
+    return ipv3.encode(netid..":0000:0000")
+  end
+  return this
+end
 ---Checks if given string is UUID
 ---@param g_uuid string
 ---@return boolean
@@ -15,10 +26,10 @@ function ipv3.isUUID(g_uuid)
   if string.match(g_uuid, pattern) then return true
   else return false end
 end
----Checks if given address is IPv3
----@param ip string
+---Checks if given string is IPv3
+---@param ip string|nil
 ---@return boolean
-function ipv3.isIPv3(ip)
+function ipv3.checkIPv3(ip)
   if type(ip)~="string" then return false end
   local colon_count=0
   for i=1,#ip do if ip:sub(i,i)==":" then colon_count=colon_count+1 end end
@@ -30,11 +41,27 @@ function ipv3.isIPv3(ip)
     return false
   end
 end
+---Checks if given binary data is IPv3
+---@param b string
+---@return boolean
+function ipv3.isIPv3(b)
+  if type(b)=="string" and #b==6 then return true end
+  return false
+end
+---checks if binary IPv3 is node
+---@param b string
+---@return boolean
+function ipv3.isNode(b)
+  if not ipv3.isIPv3(b) then return false end
+  if b:byte(5)+b:byte(6)==0 then return true end
+  return false
+end
+
 ---Expands IPv3 into full form
 ---@param ip string
 ---@return string|nil
 function ipv3.expand(ip)
-  if not ipv3.isIPv3(ip) then return nil end
+  if not ipv3.checkIPv3(ip) then return nil end
   local c_net=os.getenv(ipv3.env.this_netid) or "0000"
   local c_node=os.getenv(ipv3.env.node_uuid) or "0000"
   local c_ip=os.getenv(ipv3.env.this_ip) or "0000"
@@ -48,7 +75,7 @@ function ipv3.expand(ip)
   elseif #parts==2 then return c_net..":"..parts[1]..":"..parts[2]
   else return ip end
 end
----Separates IPv3 into parts
+---Separates full IPv3 into parts
 ---@param ip string
 ---@return string|nil,string|nil,string|nil
 function ipv3.getParts(ip)
@@ -95,7 +122,7 @@ end
 ---Encodes routing table into string
 ---@param r string[] Table of IPv3
 ---@return string|nil
-function ipv3.encodeRoute(r)
+function ipv3.encodeFullRoute(r)
   if type(r)~="table" then return nil end
   local res=""
   for i=1,#r do
@@ -108,7 +135,7 @@ end
 ---Decodes routing table from string
 ---@param s string
 ---@return string[]|nil
-function ipv3.decodeRoute(s)
+function ipv3.decodeFullRoute(s)
   if type(s)~="string" then return nil end
   if s=="" then return {} end
   local routes={}
@@ -121,6 +148,7 @@ function ipv3.decodeRoute(s)
   return routes
 end
 
+ipv3.nullIPv3=ipv3.encode("0000:0000:0000")
 return ipv3
 --[[
 1234:5678:90ab
@@ -132,4 +160,11 @@ shortened node: ::90ab
 
 Encoding:
 1234:5678:90ab -> 12 34 : 56 78 : 90 ab -ascii-> \12\34\56\78\90\ab (6 bytes total)
+]]
+
+--[[
+new: compare binary addresses.
+nodes store: dest->next hop.
+new search: temp tables at each node with search id.
+protocol for this!
 ]]
