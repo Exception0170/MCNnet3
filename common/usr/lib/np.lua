@@ -101,6 +101,10 @@ function np.header.getIPs(p)
   if not np.checkPacket(p) then return nil end
   return ipv3.decode(p:sub(2,7)),ipv3.decode(p:sub(8,13))
 end
+function np.header.getRawIPs(p)
+  if not np.header.checkPacket(p) then return nil end
+  return p:sub(2,7),p:sub(8,13)
+end
 function np.header.getPort(p)
   if not np.checkPacket(p) then return nil end
   return p:byte(14)*256+p:byte(15)

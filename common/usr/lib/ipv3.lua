@@ -10,7 +10,7 @@ ipv3.env={
 ---@return string|nil
 function ipv3.this()
   local this=os.getenv(ipv3.env.this_ip)
-  if not ipv3.checkIPv3(this) then
+  if not ipv3.isIPv3(this) then
     local netid=os.getenv(ipv3.env.this_netid)
     if not netid then netid="0000" end
     return ipv3.encode(netid..":0000:0000")

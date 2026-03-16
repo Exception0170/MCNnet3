@@ -22,7 +22,7 @@ end
 function ndp.randS(len)
   if not len then len=16 end
   local t={}
-  for i=1,16 do t[i]=string.char(math.random(0,255)) end
+  for i=1,len do t[i]=string.char(math.random(0,255)) end
   return table.concat(t)
 end
 function ndp.log(msg,crit)
@@ -53,10 +53,10 @@ end
 function ndp.receive(from_uuid,nonce,deadline)
   if not deadline then deadline=computer.uptime()+2 end
   while computer.uptime()<deadline do
-    local _,_,from_uuid_p,from_port,from_dist,from_p=event.pull("modem_message",2)
+    local _,_,from_uuid_p,from_port,from_dist,from_p=event.pull(2,"modem_message")
     if from_uuid_p and from_p and np.checkPacket(from_p) and from_port==ndp.modemPort then
       if from_uuid_p==from_uuid then
-        local _,dest_ip=np.header.getIPs(from_p)
+        local _,dest_ip=np.header.getRawIPs(from_p)
         if dest_ip==ipv3.this() then
           local payload=np.header.getPayload(from_p)
           if payload:sub(2,17)~=nonce then
@@ -81,7 +81,7 @@ function ndp.search()
   local deadline=computer.uptime()+2
   local replies={}
   while computer.uptime()<deadline do
-    local _,_,from_uuid,from_port,from_dist,from_p=event.pull("modem_message",2)
+    local _,_,from_uuid,from_port,from_dist,from_p=event.pull(2,"modem_message")
     if from_uuid and from_p and np.checkPacket(from_p) then
       table.insert(replies,{from_uuid,from_dist,from_p})
     end
@@ -97,7 +97,7 @@ function ndp.search()
       else
         local use_password=false
         if from_payload:byte(#from_payload)==1 then use_password=true end
-        local dst_ip,_=np.header.getIPs(from_p)
+        local dst_ip,_=np.header.getRawIPs(from_p)
         table.insert(found,{from_uuid,from_dist,dst_ip,use_password})
       end
     end
@@ -119,7 +119,7 @@ function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
     return
   end
   local from_payload=np.header.getPayload(from_p)
-  local from_ip,_=np.header.getIPs(from_p)
+  local from_ip,_=np.header.getRawIPs(from_p)
   local p=np.newEncodedPacketHeader(ipv3.this(),from_ip,ndp.virtualPort,{})
   local nonce=from_payload:sub(2,17)
   local flag=from_payload:byte(1)
