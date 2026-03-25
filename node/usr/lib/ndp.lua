@@ -1,5 +1,6 @@
 local ipv3=require("ipv3")
 local np=require("np")
+local giptl=require("giptl")
 local bit32=require("bit32")
 local modem=require("component").modem
 local event=require("event")
@@ -25,8 +26,8 @@ function ndp.randS(len)
   for i=1,len do t[i]=string.char(math.random(0,255)) end
   return table.concat(t)
 end
+--crit: 0,1,2,3 debug,info,warn,err
 function ndp.log(msg,crit)
-  --crit: 0,1,2,3 debug,info,warn,err
   if not crit then crit=1 end
   if type(ndp.logFunction)=="function" then
     pcall(ndp.logFunction,"ndp",msg,crit)
@@ -35,7 +36,7 @@ end
 function ndp.updateSecrets()
   local outdated={}
   for n,t in pairs(ndp.nonceSecrets) do
-    if t[2]>computer.uptime() then table.insert(outdated,n) end
+    if t[2]<computer.uptime() then table.insert(outdated,n) end
   end
   for _,n in pairs(outdated) do ndp.nonceSecrets[n]=nil end
 end
@@ -80,6 +81,7 @@ function ndp.search()
   modem.broadcast(ndp.modemPort,p)
   local deadline=computer.uptime()+2
   local replies={}
+  local uniques={}
   while computer.uptime()<deadline do
     local _,_,from_uuid,from_port,from_dist,from_p=event.pull(2,"modem_message")
     if from_uuid and from_p and np.checkPacket(from_p) then
@@ -89,9 +91,11 @@ function ndp.search()
   for i,reply in pairs(replies) do
     local from_uuid=reply[1] local from_dist=reply[2] local from_p=reply[3]
     if not np.validatePacket(from_p) then
-    elseif _G.banned_uuid[from_uuid] then --ignore: banned uuid
+    elseif giptl.isBannedUUID(from_uuid) then --ignore: banned uuid
     elseif np.header.getPort(from_p)~=ndp.virtualPort then
+    elseif uniques[from_uuid] then
     else
+      uniques[from_uuid]=true
       local from_payload=np.header.getPayload(from_p)
       if not from_payload or from_payload:byte(1)~=2 or from_payload:sub(2,17)~=nonce then
       else
@@ -106,6 +110,16 @@ function ndp.search()
   ndp.log("Found "..#found.." nodes")
   return found
 end
+
+function ndp.broadcastNew(ip)
+  local nonce=ndp.randS()
+  local p=np.newEncodedPacketHeader(ipv3.this(),ipv3.nullIPv3(),ndp.virtualPort,{broadcast=true})
+  p=p..string.char(10)..nonce..ip
+  for node_ip,node_uuid in pairs(giptl.get.nodes()) do
+    if node_ip~=ip then modem.send(node_uuid,ndp.modemPort,p) end
+  end
+end
+
 function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
   -- TODO: redo to accept all
   if not from_uuid or not from_p then return end
@@ -113,7 +127,7 @@ function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
   if np.header.getPort(from_p)~=ndp.virtualPort then return end
   local src_ip=from_p:sub(2,7)
   if not ipv3.isNode(src_ip) then return end
-  if _G.banned_uuid[from_uuid] then
+  if giptl.isBannedUUID(from_uuid) then
     local p=np.newEncodedPacketHeader(ipv3.this(),src_ip,ndp.virtualPort,{})..string.char(7)..from_p:sub(18,33)
     modem.send(from_uuid,ndp.modemPort,p)
     return
@@ -135,6 +149,9 @@ function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
       local secret=ndp.getSecretForNonce(nonce)
       p=p..string.char(8)..nonce..secret
     else
+      --connect
+      giptl.set.node(from_ip,from_uuid)
+      ndp.broadcastNew(from_ip)
       p=p..string.char(4)..nonce
     end
   elseif flag==9 then
@@ -149,13 +166,30 @@ function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
     if check_passwd~=from_payload:sub(18,#from_payload) then
       p=p..string.char(5)..nonce
     else
+      giptl.set.node(from_ip,from_uuid)
+      ndp.broadcastNew(from_ip)
       p=p..string.char(4)..nonce
     end
     ndp.nonceSecrets[nonce]=nil
+  elseif flag==10 then
+    local new_ip=from_payload:sub(18,23)
+    if not giptl.get.nodeUUID(new_ip) then
+      --overwrite existing route anyways
+      giptl.set.route(new_ip,from_ip)
+      for node_ip,node_uuid in pairs(giptl.get.nodes()) do
+        if node_ip~=from_ip then
+          modem.send(node_uuid,ndp.modemPort,from_p)
+        end
+      end
+    end
+    return --we exit early without response
   end
   modem.send(from_uuid,ndp.modemPort,p)
 end
 function ndp.connect(node_uuid,node_ip,password)
+  if giptl.get.nodeUUID(node_ip) then
+    ndp.log("Attempting to connect to already connected node",2)
+  end
   local nonce=ndp.randS()
   local p=np.newEncodedPacketHeader(ipv3.this(),node_ip,ndp.virtualPort,{})
   modem.send(node_uuid,ndp.modemPort,p..string.char(3)..nonce)
@@ -180,7 +214,7 @@ function ndp.connect(node_uuid,node_ip,password)
     if not res_p then return false,"timeout" end
     flag=res_p:byte(1)
     if flag==4 then
-      --
+      giptl.set.node(node_ip,node_uuid)
       return true,"success"
     elseif flag==5 then
       return false,"incorrect_password"
@@ -213,7 +247,6 @@ function ndp.autoConnect(found_table,connection_limit)
   end
   return nodes_connected
 end
-if not _G.banned_uuid then _G.banned_uuid={} end
 return ndp
 --[[
 global _G.banned -> uuid
@@ -240,5 +273,7 @@ flags:
 0x06 - error
 <0x06><nonce><error string/nil>
 0x07 - banned
-<0x07><nonce><ttl>
+<0x07><nonce>
+0x0A - new node broadcast
+<0x0A><nonce><dst_ip>
 ]]

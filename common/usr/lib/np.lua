@@ -87,8 +87,8 @@ function np.checkPacket(p)
 end
 function np.validatePacket(p)
   if not np.checkPacket(p) then return false end
-  if not ipv3.isIPv3(ipv3.decode(p:sub(2,7)))
-  or not ipv3.isIPv3(ipv3.decode(p:sub(8,13))) then return false end
+  if not ipv3.checkIPv3(ipv3.decode(p:sub(2,7)))
+  or not ipv3.checkIPv3(ipv3.decode(p:sub(8,13))) then return false end
   return true
 end
 function np.splitPacket(p)
@@ -101,10 +101,14 @@ function np.header.getIPs(p)
   if not np.checkPacket(p) then return nil end
   return ipv3.decode(p:sub(2,7)),ipv3.decode(p:sub(8,13))
 end
+---@param p string
+---@return string,string
 function np.header.getRawIPs(p)
   if not np.header.checkPacket(p) then return nil end
   return p:sub(2,7),p:sub(8,13)
 end
+---@param p string
+---@return integer
 function np.header.getPort(p)
   if not np.checkPacket(p) then return nil end
   return p:byte(14)*256+p:byte(15)
