@@ -1,3 +1,5 @@
+--- NDP - Node Discovery Protocol
+--- Handles initial node connections and basic routing update
 local ipv3=require("ipv3")
 local np=require("np")
 local giptl=require("giptl")
@@ -120,8 +122,7 @@ function ndp.broadcastNew(ip)
   end
 end
 
-function ndp.mainListener(_,_,from_uuid,from_port,from_dist,from_p)
-  -- TODO: redo to accept all
+function ndp.handlePacket(_,_,from_uuid,from_port,from_dist,from_p)
   if not from_uuid or not from_p then return end
   if from_port~=ndp.modemPort then return end
   if np.header.getPort(from_p)~=ndp.virtualPort then return end
