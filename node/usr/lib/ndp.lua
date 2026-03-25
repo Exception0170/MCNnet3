@@ -240,9 +240,9 @@ function ndp.autoConnect(found_table,connection_limit)
     local success,msg=ndp.connect(node[1],node[3],node[4])
     if success then
       nodes_connected=nodes_connected+1
-      ndp.log("Successfully connected")
+      ndp.log("Successfully connected",1)
     else
-      ndp.log("Failed to connect to "..node[3]..": "..msg)
+      ndp.log("Failed to connect to "..node[3]..": "..msg,2)
     end
   end
   return nodes_connected

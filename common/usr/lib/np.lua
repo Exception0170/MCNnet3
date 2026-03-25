@@ -3,6 +3,8 @@ local ipv3=require("ipv3")
 local ser=require("serialization")
 local np={}
 np.ver="3.0"
+---@param n integer
+---@return string
 function np.encodeNum(n)
   if n==0 then return "\0" end
   local t={}
@@ -15,6 +17,8 @@ function np.encodeNum(n)
   end
   return table.concat(t)
 end
+---@param str string
+---@return integer
 function np.decodeNum(str)
   local n=0
   for i=1,#str do
@@ -38,6 +42,13 @@ function np.buildFlags(t)
   if t.serialized then b = b | 0x08 end
   return b
 end
+---Make a new, not encoded packet table
+---@param src_ip string non-encoded IPv3
+---@param dest_ip string non-encoded IPv3
+---@param port integer
+---@param flags table<string,boolean>
+---@param payload string|table
+---@return table|nil
 function np.newPacket(src_ip,dest_ip,port,flags,payload)
   local src_ip=ipv3.expand(src_ip)
   local dest_ip=ipv3.expand(dest_ip)
@@ -47,13 +58,22 @@ function np.newPacket(src_ip,dest_ip,port,flags,payload)
   if not payload then return nil end
   return {src=src_ip,dst=dest_ip,port=port,flags=flags,payload=payload}
 end
+---Make an encoded packet header
+---@param src_ip string encoded IPv3
+---@param dest_ip string encoded IPv3
+---@param port integer
+---@param flags table<string,boolean>
+---@return string|nil
 function np.newEncodedPacketHeader(src_ip,dest_ip,port,flags)
   if not ipv3.isIPv3(src_ip) or not ipv3.isIPv3(dest_ip) or type(port)~="number" then return nil end
   if port<0 or port>0xffff then return nil end
   if type(flags)~="table" then return nil end
-  port=string.char(math.floor(port/256),port%256)
-  return string.char(3)..src_ip..dest_ip..port..string.char(np.buildFlags(flags))
+  local eport=string.char(math.floor(port/256),port%256)
+  return string.char(3)..src_ip..dest_ip..eport..string.char(np.buildFlags(flags))
 end
+---Encode a packet table
+---@param p table
+---@return string|nil
 function np.encodePacket(p)
   if not p.src or not p.dst or not p.port or not p.flags or not p.payload then return nil end
   local src_ip=ipv3.encode(p.src)
@@ -69,6 +89,9 @@ function np.encodePacket(p)
   else payload=tostring(p.payload) end
   return string.char(3)..src_ip..dest_ip..port..string.char(np.buildFlags(flags))..payload
 end
+---Decode a packet table
+---@param raw string
+---@return table|nil
 function np.decodePacket(raw)
   if raw:byte(1)~=3 then return nil end
   local src_ip=ipv3.decode(raw:sub(2,7))
@@ -104,7 +127,7 @@ end
 ---@param p string
 ---@return string,string
 function np.header.getRawIPs(p)
-  if not np.header.checkPacket(p) then return nil end
+  if not np.header.checkPacket(p) then return nil,nil end
   return p:sub(2,7),p:sub(8,13)
 end
 ---@param p string
@@ -117,6 +140,8 @@ function np.header.getFlags(p)
   if not np.checkPacket(p) then return nil end
   return np.parseFlags(p:byte(16))
 end
+---@param p string
+---@return string
 function np.header.getPayload(p)
   return p:sub(17,#p)
 end

@@ -7,7 +7,7 @@ ipv3.env={
   this_netid="this_netid"
 }
 ---Get this device's encoded ipv3
----@return string|nil
+---@return string
 function ipv3.this()
   local this=os.getenv(ipv3.env.this_ip)
   if not ipv3.isIPv3(this) then
