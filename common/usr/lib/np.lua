@@ -169,6 +169,11 @@ function np.header.getTTL(p)
   if not np.checkPacket(p) then return nil end
   return p:byte(17)
 end
+function np.header.decreaseTTL(p)
+  if not np.checkPacket(p) then return nil end
+  local new_ttl=np.header.getTTL(p)
+  return p:sub(1,16)..new_ttl..p:sub(18,#p)
+end
 ---@param p string
 ---@return string
 function np.header.getPayload(p)
