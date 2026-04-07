@@ -171,8 +171,9 @@ function np.header.getTTL(p)
 end
 function np.header.decreaseTTL(p)
   if not np.checkPacket(p) then return nil end
-  local new_ttl=np.header.getTTL(p)
-  return p:sub(1,16)..new_ttl..p:sub(18,#p)
+  local new_ttl=np.header.getTTL(p)+1
+  if new_ttl==256 then return p end
+  return p:sub(1,16)..tostring(new_ttl)..p:sub(18,#p)
 end
 ---@param p string
 ---@return string
@@ -195,4 +196,5 @@ flags:
 first byte: version+header_length/4
 version(mask 11110000): 8+version num
 header_len(mask 00001111): header length/4, at least 20
+TTL: 0-254; 255 for inf
 ]]
