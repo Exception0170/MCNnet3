@@ -4,7 +4,7 @@
 local ser=require("serialization")
 local ipv3=require("ipv3")
 local giptl={}
-giptl.version="1.0"
+giptl.version="1.1"
 giptl.t={
   nodes={}, -- ipv3=uuid
   clients={}, -- ipv3=uuid
@@ -99,6 +99,41 @@ end
 ---@return table<string,string>
 function giptl.get.routes()
   return giptl.t.routes
+end
+
+giptl.del={}
+---@param ip string
+---@return boolean success
+function giptl.del.node(ip)
+  if not ipv3.isIPv3(ip) then return false end
+  giptl.t.nodes[ip]=nil
+  return true
+end
+---@param ip string
+---@return boolean success
+function giptl.del.client(ip)
+  if not ipv3.isIPv3(ip) then return false end
+  giptl.t.client[ip]=nil
+  return true
+end
+---@param target_ip string
+---@return boolean success
+function giptl.del.route(target_ip)
+  if not ipv3.isIPv3(target_ip) then return false end
+  giptl.t.routes[target_ip]=nil
+  return true
+end
+---Delete all hops using the next_ip
+---@param next_ip string
+---@return boolean
+function giptl.del.nextHop(next_ip)
+  if not ipv3.isIPv3(next_ip) then return false end
+  for target,next in pairs(giptl.t.routes) do
+    if next==next_ip then
+      giptl.t.routes[target]=nil
+    end
+  end
+  return true
 end
 
 ---@param uuid string
