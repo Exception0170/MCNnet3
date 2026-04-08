@@ -56,7 +56,7 @@ function np.newPacket(src_ip,dest_ip,port,flags,payload,ttl)
   if port<0 or port>0xffff then return nil end
   if type(flags)~="table" then return nil end
   if not payload then return nil end
-  if type(ttl)~="number" or ttl<0 or ttl>0xFF then ttl=0xFF end
+  if type(ttl)~="number" or ttl<0 or ttl>0xFF then ttl=0xFE end
   return {src=src_ip,dst=dest_ip,port=port,flags=flags,payload=payload,ttl=ttl}
 end
 ---Make an encoded packet header
@@ -70,6 +70,7 @@ function np.newEncodedPacketHeader(src_ip,dest_ip,port,flags,ttl)
   if not ipv3.isIPv3(src_ip) or not ipv3.isIPv3(dest_ip) or type(port)~="number" then return nil end
   if port<0 or port>0xffff then return nil end
   if type(flags)~="table" then return nil end
+  if not ttl then ttl=0xFE end
   local eport=string.char(math.floor(port/256),port%256)
   local p=string.char(np.vernum+20/4)..src_ip..dest_ip..eport..string.char(np.buildFlags(flags))..string.char(ttl)
   return p..string.rep(string.char(0),20-#p)
