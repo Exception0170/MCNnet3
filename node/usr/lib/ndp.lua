@@ -8,6 +8,7 @@ local modem=require("component").modem
 local event=require("event")
 local computer=require("computer")
 local ndp={}
+ndp.version="3.0.1"
 ndp.modemPort=2000
 ndp.virtualPort=1
 ndp.nonceSecrets={} -- nonce=secret,ttl
@@ -79,14 +80,14 @@ function ndp.search()
   ndp.log("Started search for nodes")
   local found={}--uuid,dist,ipv3,password?
   local nonce=ndp.randS()
-  local p=np.newEncodedPacketHeader(this_ip,ipv3.nullIPv3,ndp.virtualPort,{broadcast=true})..string.char(1)..nonce
+  local p=np.newEncodedPacketHeader(this_ip,ipv3.nullIPv3,ndp.virtualPort,{broadcast=true},1)..string.char(1)..nonce
   modem.broadcast(ndp.modemPort,p)
   local deadline=computer.uptime()+2
   local replies={}
   local uniques={}
   while computer.uptime()<deadline do
     local _,_,from_uuid,from_port,from_dist,from_p=event.pull(2,"modem_message")
-    if from_uuid and from_p and np.checkPacket(from_p) then
+    if from_uuid and from_p and np.checkPacket(from_p) and from_port==ndp.modemPort then
       table.insert(replies,{from_uuid,from_dist,from_p})
     end
   end
@@ -115,27 +116,27 @@ end
 
 function ndp.broadcastNew(ip)
   local nonce=ndp.randS()
-  local p=np.newEncodedPacketHeader(ipv3.this(),ipv3.nullIPv3(),ndp.virtualPort,{broadcast=true})
+  local p=np.newEncodedPacketHeader(ipv3.this(),ipv3.nullIPv3,ndp.virtualPort,{broadcast=true},255)
   p=p..string.char(10)..nonce..ip
   for node_ip,node_uuid in pairs(giptl.get.nodes()) do
     if node_ip~=ip then modem.send(node_uuid,ndp.modemPort,p) end
   end
 end
 
-function ndp.handlePacket(_,_,from_uuid,from_port,from_dist,from_p)
+function ndp.handlePacket(_,_,from_uuid,from_port,_,from_p)
   if not from_uuid or not from_p then return end
   if from_port~=ndp.modemPort then return end
   if np.header.getPort(from_p)~=ndp.virtualPort then return end
-  local src_ip=from_p:sub(2,7)
-  if not ipv3.isNode(src_ip) then return end
+  if np.header.getTTL(from_p)==0 then return end
+  local from_payload=np.header.getPayload(from_p)
+  local from_ip,_=np.header.getRawIPs(from_p)
+  if not ipv3.isNode(from_ip) then return end
+  local p=np.newEncodedPacketHeader(ipv3.this(),from_ip,ndp.virtualPort,{},1)
   if giptl.isBannedUUID(from_uuid) then
-    local p=np.newEncodedPacketHeader(ipv3.this(),src_ip,ndp.virtualPort,{})..string.char(7)..from_p:sub(18,33)
+    p=p..string.char(7)..from_payload:sub(2,17)
     modem.send(from_uuid,ndp.modemPort,p)
     return
   end
-  local from_payload=np.header.getPayload(from_p)
-  local from_ip,_=np.header.getRawIPs(from_p)
-  local p=np.newEncodedPacketHeader(ipv3.this(),from_ip,ndp.virtualPort,{})
   local nonce=from_payload:sub(2,17)
   local flag=from_payload:byte(1)
   if flag==1 then
@@ -177,6 +178,7 @@ function ndp.handlePacket(_,_,from_uuid,from_port,from_dist,from_p)
     if not giptl.get.nodeUUID(new_ip) then
       --overwrite existing route anyways
       giptl.set.route(new_ip,from_ip)
+      from_p=np.header.decreaseTTL(from_p)
       for node_ip,node_uuid in pairs(giptl.get.nodes()) do
         if node_ip~=from_ip then
           modem.send(node_uuid,ndp.modemPort,from_p)
@@ -184,6 +186,22 @@ function ndp.handlePacket(_,_,from_uuid,from_port,from_dist,from_p)
       end
     end
     return --we exit early without response
+  elseif flag==11 then --WIP!
+    local force=false
+    if from_payload:byte(18)==1 then force=true end
+    if giptl.get.nodeUUID(from_ip) then
+      --local
+      giptl.del.node(from_ip)
+      if force then
+        giptl.del.nextHop(from_ip)
+        --NMP delete
+        local success,err=pcall(function()
+          local nmp=require("nmp")
+          nmp.purgeNode(from_ip)
+        end)
+        if not success then ndp.log("Couldn't NMP/PurgeNode: "..err,3) end
+      end
+    end
   end
   modem.send(from_uuid,ndp.modemPort,p)
 end
@@ -192,13 +210,13 @@ function ndp.connect(node_uuid,node_ip,password)
     ndp.log("Attempting to connect to already connected node",2)
   end
   local nonce=ndp.randS()
-  local p=np.newEncodedPacketHeader(ipv3.this(),node_ip,ndp.virtualPort,{})
+  local p=np.newEncodedPacketHeader(ipv3.this(),node_ip,ndp.virtualPort,{},1)
   modem.send(node_uuid,ndp.modemPort,p..string.char(3)..nonce)
   local res_p=ndp.receive(node_uuid,nonce)
   if not res_p then return false,"timeout" end
   local flag=res_p:byte(1)
   if flag==4 then
-    --
+    giptl.set.node(node_ip,node_uuid)
     return true,"success"
   elseif flag==6 then
     return false,"error:"..res_p:sub(18,#res_p)
@@ -248,10 +266,20 @@ function ndp.autoConnect(found_table,connection_limit)
   end
   return nodes_connected
 end
+---Disconnect node from network, call when shutdown!
+---@param force boolean Should node be purged from network?
+function ndp.disconnect(force)
+  local force_bit=string.char(0)
+  if force then force_bit=string.char(1) end
+  local nonce=ndp.randS()
+  for node_ip,node_uuid in pairs(giptl.get.nodes()) do
+    local p=np.newEncodedPacketHeader(ipv3.this(),node_ip,ndp.virtualPort,{},1)
+    p=p..string.char(11)..nonce..force_bit
+    modem.send(node_uuid,ndp.modemPort,p)
+  end
+end
 return ndp
 --[[
-global _G.banned -> uuid
-
 real port=2000 default
 vport=1
 nonce = random string, 16 bytes
@@ -277,4 +305,6 @@ flags:
 <0x07><nonce>
 0x0A - new node broadcast
 <0x0A><nonce><dst_ip>
+0x0B - disconnect node
+<0x0B><nonce><0x0/0x1>(force_reset) TODO
 ]]
